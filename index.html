@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Micro-politics v2</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
   <style>
     :root{
       --bg:#f6f8fc;--card:#ffffff;--text:#0f172a;--muted:#64748b;
@@ -195,6 +198,18 @@
 </head>
 <body>
 
+<!-- ══════════ Auth Screen（Google 登入）══════════ -->
+<div id="authOverlay" style="position:fixed;inset:0;background:linear-gradient(135deg,#0f172a,#1e293b);display:flex;align-items:center;justify-content:center;z-index:10000;">
+  <div class="pin-box">
+    <div class="pin-logo">MP</div>
+    <div class="pin-title">Micro-politics</div>
+    <div class="pin-sub">本系統含敏感資料<br>請使用授權的 Google 帳戶登入</div>
+    <button id="authBtn" onclick="doLogin()" style="width:100%;padding:14px;border-radius:14px;border:1px solid #60a5fa;background:#1e3a5f;color:#f1f5f9;font-size:16px;font-weight:700;cursor:pointer;">🔐 使用 Google 帳戶登入</button>
+    <div id="authStatus" style="color:#94a3b8;font-size:13px;margin-top:14px;min-height:18px;"></div>
+    <div id="authErr" style="color:#f87171;font-size:13px;margin-top:6px;display:none;"></div>
+  </div>
+</div>
+
 <!-- ══════════ PIN Screen ══════════ -->
 <div id="pinScreen" style="display:none">
   <div class="pin-box">
@@ -276,23 +291,20 @@
     </div>
     <div id="importStatus" style="font-size:12px;color:var(--muted);min-height:18px;"></div>
     <div style="height:18px;border-top:1px solid var(--line);margin-top:18px;padding-top:18px;">
-      <h3 style="margin:0 0 6px;">☁️ Google Script 網址</h3>
+      <h3 style="margin:0 0 6px;">👤 登入帳戶</h3>
     </div>
     <div class="muted" style="margin-bottom:8px;font-size:12px;">
-      換裝置或重新部署 GAS 後，在此更新網址即可重新連線。
+      資料存放於 Firebase，僅白名單內的 Google 帳戶可存取。
     </div>
-    <input id="gasUrlInput" type="text" placeholder="https://script.google.com/macros/s/…/exec" style="font-size:11px;font-family:monospace;" />
-    <div class="row" style="margin-top:8px">
-      <button class="btn primary" onclick="saveGasUrl()">💾 儲存網址</button>
-      <button class="btn" onclick="resetGasUrl()">↩️ 恢復預設</button>
-      <button class="btn success" onclick="testGasConnection()">🔌 測試連線</button>
+    <div id="accountEmail" style="font-size:13px;font-weight:700;margin-bottom:8px;">未登入</div>
+    <div class="row">
+      <button class="btn danger" onclick="doLogout()">🚪 登出</button>
     </div>
-    <div id="gasUrlStatus" style="font-size:12px;margin-top:6px;color:var(--muted);min-height:18px;"></div>
     <div style="height:18px;border-top:1px solid var(--line);margin-top:18px;padding-top:18px;">
-      <h3 style="margin:0 0 6px;">💾 離線模式（無 GAS 時使用）</h3>
+      <h3 style="margin:0 0 6px;">💾 離線模式（無網路時使用）</h3>
     </div>
     <div class="muted" style="margin-bottom:8px;font-size:12px;">
-      若暫時無法連接 Google Script，可切換為離線模式，事件存於瀏覽器本機。
+      若暫時無法連接 Firebase，可切換為離線模式，事件存於瀏覽器本機。
     </div>
     <div class="row">
       <button class="btn warn" onclick="switchToLocalMode()">🔌 切換為離線模式</button>
@@ -403,12 +415,12 @@
       <div id="batchBanner" style="display:none;background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.40);border-radius:14px;padding:12px 16px;margin-bottom:14px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
         <div>
           <span style="font-weight:700;font-size:13px;">⚠️ 偵測到 <span id="unanalyzedCount">0</span> 筆未分析事件</span>
-          <div class="muted" style="margin-top:3px;">直接在 Google Sheet 填入的事件缺少嚴重性分析，需補充。</div>
+          <div class="muted" style="margin-top:3px;">部分事件缺少嚴重性分析，可批次補充。</div>
         </div>
         <button class="btn primary" id="dashBatchBtn" onclick="runBatchAnalyzeFromDash()">▶ 批次分析</button>
       </div>
       <div class="kpis">
-        <div class="kpi"><div style="flex:1"><div class="label">總事件數</div><div class="value" id="kpiTotal">—</div><div class="hint">來自 Google Sheet</div></div><div class="icon">📌</div></div>
+        <div class="kpi"><div style="flex:1"><div class="label">總事件數</div><div class="value" id="kpiTotal">—</div><div class="hint">來自 Firebase 雲端</div></div><div class="icon">📌</div></div>
         <div class="kpi"><div style="flex:1"><div class="label">近期事件<select id="periodSelect" class="period-sel" onchange="refreshKPIs()"><option value="1">1個月</option><option value="3">3個月</option><option value="6" selected>6個月</option><option value="12">12個月</option></select></div><div class="value" id="kpi7d">—</div><div class="hint" id="kpiPeriodHint">依 created_at</div></div><div class="icon">🗓️</div></div>
         <div class="kpi"><div style="flex:1"><div class="label">高風險事件</div><div class="value" id="kpiHigh">—</div><div class="hint">severity 高/重大</div></div><div class="icon">🚨</div></div>
         <div class="kpi"><div style="flex:1"><div class="label">最高風險分類</div><div class="value" id="kpiTopCat" style="font-size:15px;margin-top:6px;">—</div><div class="hint">只統計高/重大</div></div><div class="icon">🧭</div></div>
@@ -655,18 +667,22 @@
     <!-- ══════════ TAB 7: Cloud Sync ══════════ -->
     <section id="tab-backup" class="hidden">
       <div class="card">
-        <h2>☁️ 雲端同步（Google Sheet）</h2>
-        <div class="muted" style="margin-bottom:12px">直接對 Google Sheet 讀寫。若「測試寫入」成功，代表同步正常。</div>
+        <h2>☁️ 雲端同步（Firebase）</h2>
+        <div class="muted" style="margin-bottom:12px">資料存於 Firebase Realtime Database，僅授權帳戶可讀寫。若「測試寫入」成功，代表同步正常。</div>
         <div class="row" style="margin-bottom:14px">
           <button class="btn primary" onclick="checkCloud()">🔌 檢查連線</button>
           <button class="btn warn" onclick="cloudWriteTest()">🧪 測試寫入</button>
           <button class="btn primary" onclick="loadAllEvents()">🔄 讀取事件</button>
           <button class="btn" onclick="exportJSON()">📦 匯出 JSON</button>
-          <button class="btn primary" onclick="initSheet()">初始化表頭</button>
+        </div>
+        <div style="border:1px solid rgba(37,99,235,.35);border-radius:14px;padding:14px;background:rgba(37,99,235,.06);margin-bottom:14px">
+          <div style="font-weight:700;font-size:14px;margin-bottom:6px">⬆️ 從舊版 GAS 匯入資料（一次性遷移）</div>
+          <div class="muted" style="margin-bottom:10px">將舊 Google Sheet 後端的所有事件搬進 Firebase。同 id 覆蓋，可重複執行。搬完並確認無誤後，請停用舊的 GAS 部署。</div>
+          <button class="btn primary" onclick="importFromGAS()">⬆️ 開始匯入</button>
         </div>
         <div style="border:1px solid rgba(245,158,11,.35);border-radius:14px;padding:14px;background:rgba(245,158,11,.06);margin-bottom:14px">
           <div style="font-weight:700;font-size:14px;margin-bottom:6px">🔄 批次補充分析</div>
-          <div class="muted" style="margin-bottom:10px">直接在 Google Sheet 填入的事件沒有診斷資料，點此批次補充。</div>
+          <div class="muted" style="margin-bottom:10px">缺少嚴重性診斷的事件，點此以 Gemini AI 批次補充。</div>
           <div class="row">
             <button class="btn primary" onclick="runBatchAnalyze()" id="batchBtn">▶ 開始批次分析</button>
             <span id="batchStatus" class="muted" style="font-size:12px;"></span>
@@ -684,11 +700,8 @@
 // ═══════════════════════════════════════
 //  CONSTANTS & STATE
 // ═══════════════════════════════════════
-const DEFAULT_BACKEND_URL = "https://script.google.com/macros/s/AKfycbwf41acik0L63g16j9eQjlUGPs-nQXO-LHp7LIHM1lypbrtdyoEskpr3FSnElnyWC_S/exec";
-const GAS_URL_KEY = "mp_gas_url_v1";
-function getBackendUrl(){ return localStorage.getItem(GAS_URL_KEY)||DEFAULT_BACKEND_URL; }
-// alias used throughout
-const BACKEND_URL = null; // replaced by getBackendUrl() at call time
+// 舊版 GAS 後端網址：僅供「匯入舊資料」一次性遷移使用，遷移完成後應停用該 GAS 部署
+const OLD_GAS_URL = "https://script.google.com/macros/s/AKfycbwf41acik0L63g16j9eQjlUGPs-nQXO-LHp7LIHM1lypbrtdyoEskpr3FSnElnyWC_S/exec";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com";
 const API_KEY_STORAGE = "mp_gemini_key_v2";
 const MODEL_STORAGE   = "mp_gemini_model_v2";
@@ -701,6 +714,72 @@ let crossData = null;
 let actionItems = [];
 let weeklyText = "";
 let pinBuffer = "";
+
+// ═══════════════════════════════════════
+//  FIREBASE ── 後端資料庫 + Google 登入
+//  （資料庫規則同步限制相同白名單，前端檢查只是提早給錯誤訊息）
+// ═══════════════════════════════════════
+const _FB_CONFIG = {
+  apiKey: "AIzaSyAj1xigGCfdDFr4UQ_NtEaINoH5jj6sTIA",
+  authDomain: "ck-schadmin.firebaseapp.com",
+  projectId: "ck-schadmin",
+  storageBucket: "ck-schadmin.firebasestorage.app",
+  messagingSenderId: "661490879869",
+  appId: "1:661490879869:web:9fe0b1753b0101b9309014",
+  databaseURL: "https://ck-schadmin-default-rtdb.firebaseio.com"
+};
+firebase.initializeApp(_FB_CONFIG);
+const _fbAuth = firebase.auth();
+const _mpRef = firebase.database().ref("microPolitics/events");
+const _ALLOWED_EMAILS = ["cyysongyy@gmail.com"]; // ← 增減授權帳戶需同步修改 Firebase 資料庫規則
+let _authUser = null;
+let _appStarted = false;
+
+function _authMsg(msg, isErr) {
+  const st = document.getElementById("authStatus");
+  const err = document.getElementById("authErr");
+  if (isErr) { err.textContent = msg; err.style.display = "block"; }
+  else { st.textContent = msg; err.style.display = "none"; }
+}
+
+_fbAuth.onAuthStateChanged(user => {
+  const overlay = document.getElementById("authOverlay");
+  if (user && _ALLOWED_EMAILS.includes(user.email)) {
+    _authUser = user;
+    overlay.style.display = "none";
+    if (!_appStarted) { _appStarted = true; checkPin(); }
+    return;
+  }
+  _authUser = null;
+  if (user) { // 已登入 Google 但不在白名單
+    _authMsg("❌ 此帳戶未獲授權：" + (user.email || "(無法取得信箱)"), true);
+    _fbAuth.signOut();
+  } else {
+    _authMsg("請使用授權的 Google 帳戶登入", false);
+  }
+  overlay.style.display = "flex";
+});
+
+function doLogin() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  _authMsg("登入中…", false);
+  _fbAuth.signInWithPopup(provider).catch(err => {
+    if (err && err.code === "auth/popup-blocked") {
+      _fbAuth.signInWithRedirect(provider); // 彈出視窗被擋 → 改用整頁跳轉
+      return;
+    }
+    if (err && (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request")) {
+      _authMsg("請使用授權的 Google 帳戶登入", false);
+      return;
+    }
+    _authMsg("❌ 登入失敗：" + (err && err.message || err), true);
+  });
+}
+
+function doLogout() {
+  if (!confirm("確定要登出？下次開啟需重新登入 Google 帳戶。")) return;
+  _fbAuth.signOut().then(() => location.reload());
+}
 
 // ═══════════════════════════════════════
 //  PIN PROTECTION
@@ -796,12 +875,11 @@ function updateKeyBadge() {
 function openSettings() {
   document.getElementById("apiKeyInput").value = getApiKey();
   updateKeyStatusRow(getApiKey()?"已設定":"尚未設定",getApiKey()?"dot-ok":"dot-no");
-  document.getElementById("gasUrlInput").value = getBackendUrl();
+  document.getElementById("accountEmail").textContent = _authUser ? ("✅ "+_authUser.email) : "未登入";
   const mode=getMode();
   document.getElementById("modeStatus").textContent = mode==="local"
     ? "🔌 目前：離線模式（事件存於本機）"
-    : "☁️ 目前：雲端模式（連接 Google Script）";
-  document.getElementById("gasUrlStatus").textContent="";
+    : "☁️ 目前：雲端模式（連接 Firebase）";
   document.getElementById("importStatus").textContent="";
   document.getElementById("settingsModal").classList.add("open");
 }
@@ -923,19 +1001,168 @@ ${summary}
 }
 
 // ═══════════════════════════════════════
-//  GAS BACKEND
+//  FIREBASE BACKEND（取代舊 GAS）
 // ═══════════════════════════════════════
 function gasCall(fn,args){
   // Route to local mode if needed (gasCallLocal defined later)
   if(typeof getMode==="function" && getMode()==="local") return gasCallLocal(fn,args);
   setStatus("處理中…");
-  const key=getApiKey();
-  const fullArgs=key?{...(args||{}),gemini_api_key:key}:(args||{});
-  const url=getBackendUrl();
-  return fetch(url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({fn,args:fullArgs})})
-    .then(r=>{if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})
-    .then(d=>{setStatus("就緒");if(d&&d.ok===false&&d.error)throw new Error(d.error);return d;})
+  return gasCallCloud(fn,args||{})
+    .then(d=>{setStatus("就緒");return d;})
     .catch(e=>{setStatus("錯誤："+safeErrMsg(e).slice(0,30));throw e;});
+}
+
+function _fbKeySafe(id){ return String(id).replace(/[.#$/\[\]]/g,"_"); }
+
+async function _fbEvents(){
+  if(!_authUser) throw new Error("尚未登入，請重新整理頁面並登入 Google 帳戶");
+  const snap=await _mpRef.once("value");
+  const val=snap.val()||{};
+  const arr=Object.values(val).filter(e=>e&&typeof e==="object");
+  // 新→舊排序（與原本地模式一致）
+  arr.sort((a,b)=>String(b.created_at||b.time||"").localeCompare(String(a.created_at||a.time||"")));
+  return arr;
+}
+
+// 規則引擎（無 AI Key 時的預設分類與三層建議，沿用舊 GAS 風格）
+function ruleClassify(desc){
+  const d=String(desc||"");
+  if(/自傷|自殘|輕生|武器|刀|性騷|性侵|嚴重受傷|送醫/.test(d))return{severity:"重大",category:"安全危機"};
+  if(/打|踢|推擠|攻擊|暴力|霸凌|勒索|威脅|恐嚇|受傷/.test(d))return{severity:"高",category:"肢體衝突"};
+  if(/吵|罵|嗆|衝突|對立|排擠|哭|情緒|拒絕|抗拒|投訴|告狀/.test(d))return{severity:"中",category:"言語情緒衝突"};
+  return{severity:"低",category:"其他"};
+}
+function ruleDiag(severity,students,teacher,category){
+  const T={
+    "低":{c:"學校層面先以留存紀錄為主，暫不需擴大處理。\n若重複發生，再提升至行政追蹤。",t:"請先完成事件釐清，再依班級規則進行處理。\n請留下簡要紀錄，作為後續觀察依據。",s:"要讓學生知道自己的行為造成什麼影響。\n要求學生說出下一次應如何做得更恰當。"},
+    "中":{c:"請訓導組長留意此事件後續發展，建立追蹤紀錄。\n若一週內再次發生，請安排相關人員會談。",t:"請導師主動與涉事學生個別談話，釐清事件脈絡。\n留意班級氣氛變化，必要時調整座位或分組。",s:"引導學生說出事件經過與自己的感受。\n與學生約定具體的改善行為，一週後檢核。"},
+    "高":{c:"請訓導組長立即介入調查，完整記錄事件經過。\n通知相關家長，並安排後續輔導資源。\n三日內回報處理進度。",t:"請導師當日與涉事學生完成個別談話。\n加強課間巡視，避免衝突再次發生。\n與家長保持聯繫，同步觀察在家狀況。",s:"立即制止不當行為，明確說明行為後果。\n安排修復式對話，讓雙方表達感受。\n訂定行為契約並每日檢核。"},
+    "重大":{c:"請訓導組長立即啟動校安通報程序。\n通知家長到校，必要時聯繫輔導室與校外資源。\n全程留存紀錄，當日回報校長。",t:"請導師立即確保所有學生安全，隔離衝突現場。\n配合行政調查，提供完整事件紀錄。\n後續密切觀察涉事學生身心狀況。",s:"優先確認學生身心安全，安排專業輔導介入。\n暫緩懲處討論，以穩定情緒為第一步。\n與家長共同擬定支持計畫。"}
+  };
+  const x=T[severity]||T["低"];
+  return{
+    toDisciplineChief:`【校長對訓導組長｜學校層面】\n嚴重性：${severity}\n${x.c}`,
+    toTeacher:`【校長對導師｜老師層面】\n嚴重性：${severity}\n${x.t}`,
+    toStudent:`【校長對學生｜學生層面】\n嚴重性：${severity}\n${x.s}`,
+    systemNote:`【系統備註】\n主述人物：${students||"未填"}\n導師：${teacher||"未填"}\n事件類別：${category||"其他"}\n系統判斷嚴重性：${severity}`
+  };
+}
+
+// 交叉分析共用邏輯（雲端與離線模式共用）
+function computeCross(events){
+  const studentStats={},pairStats={};
+  events.forEach(ev=>{
+    const names=(ev.students||"").split(/[,，]/).map(s=>s.trim()).filter(Boolean);
+    names.forEach(name=>{
+      if(!studentStats[name])studentStats[name]={total:0,低:0,中:0,高:0,重大:0,maxSeverity:"低",topCategory:"",categories:{},recentTime:"",recentDesc:""};
+      const s=studentStats[name];s.total++;s[ev.severity||"低"]=(s[ev.severity||"低"]||0)+1;
+      const cats=ev.category||"一般";s.categories[cats]=(s.categories[cats]||0)+1;
+      s.topCategory=Object.entries(s.categories).sort((a,b)=>b[1]-a[1])[0]?.[0]||"";
+      const sevOrd={低:1,中:2,高:3,重大:4};
+      if((sevOrd[ev.severity||"低"]||0)>(sevOrd[s.maxSeverity]||0))s.maxSeverity=ev.severity||"低";
+      if(!s.recentTime){s.recentTime=ev.created_at||"";s.recentDesc=ev.desc||"";}
+    });
+    if(names.length>1){
+      for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++){
+        const key=[names[i],names[j]].sort().join("—");
+        if(!pairStats[key])pairStats[key]={total:0,低:0,中:0,高:0,重大:0,events:[]};
+        const p=pairStats[key];p.total++;p[ev.severity||"低"]=(p[ev.severity||"低"]||0)+1;
+        if(p.events.length<3)p.events.push({sev:ev.severity||"低",time:formatTime_(ev.created_at||""),desc:(ev.desc||"").slice(0,40)});
+      }
+    }
+  });
+  return{studentStats,pairStats,totalEvents:events.length};
+}
+
+async function gasCallCloud(fn,args){
+  if(fn==="getAllEvents"){ return await _fbEvents(); }
+
+  if(fn==="appendEvent"){
+    const nowIso=new Date().toISOString();
+    const created=args.time||nowIso;
+    const id="evt_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,6);
+    let severity=args.severity||"",category=args.category||"",diag={};
+    let ta=args.teacherAdvice||"",aa=args.aiAnalysis||"",pt=args.principalToTeacher||"",ps=args.principalToStudent||"";
+    if(!severity){ // 未附 AI 結果 → 規則引擎
+      const clf=ruleClassify(args.desc);severity=clf.severity;category=category||clf.category;
+      diag=ruleDiag(severity,args.students,args.teacher,category);
+      ta=diag.toDisciplineChief;aa=diag.toTeacher;pt=diag.toStudent;ps=diag.systemNote;
+    }
+    const evt={id,created_at:created,time:created,students:args.students||"",teacher:args.teacher||"",desc:args.desc||"",severity,category,teacherAdvice:ta,aiAnalysis:aa,principalToTeacher:pt,principalToStudent:ps,evStatus:"pending",summary:`${formatTime_(created)}｜${args.students||""}｜嚴重性:${severity}｜${(args.desc||"").slice(0,40)}`};
+    await _mpRef.child(id).set(evt);
+    return{ok:true,id,severity,diag};
+  }
+
+  if(fn==="updateEvent"){
+    if(!args.id)throw new Error("缺少事件 id");
+    const clean={};
+    ["time","students","teacher","desc","severity","category","evStatus","teacherAdvice","aiAnalysis","principalToTeacher","principalToStudent"].forEach(k=>{if(args[k]!==undefined)clean[k]=args[k];});
+    await _mpRef.child(_fbKeySafe(args.id)).update(clean);
+    return{ok:true};
+  }
+
+  if(fn==="getGlobalAnalysis"){
+    const events=await _fbEvents();
+    const s={重大:0,高:0,中:0,低:0};
+    events.forEach(e=>{const sv=e.severity||"低";if(s[sv]!==undefined)s[sv]++;});
+    return{text:events.length?`共 ${events.length} 筆事件（Firebase 雲端）\n重大：${s["重大"]}｜高：${s["高"]}｜中：${s["中"]}｜低：${s["低"]}`:"尚無雲端事件。",aiPowered:false,analyzed:events.length};
+  }
+
+  if(fn==="getCrossAnalysis"){ return computeCross(await _fbEvents()); }
+
+  if(fn==="batchAnalyze"){
+    if(!getApiKey())throw new Error("批次分析需要 Gemini API Key，請先至「設定」填入");
+    const events=await _fbEvents();
+    const targets=events.filter(e=>!String(e.severity||"").trim());
+    let processed=0;
+    for(const e of targets){
+      try{
+        const payload={desc:e.desc,students:e.students,teacher:e.teacher};
+        const clf=await aiClassify(payload);
+        const tiers=await aiThreeTier(payload,clf.severity,clf.category);
+        await _mpRef.child(_fbKeySafe(e.id)).update({severity:clf.severity,category:clf.category,teacherAdvice:tiers.toDisciplineChief,aiAnalysis:tiers.toTeacher,principalToTeacher:tiers.toStudent,principalToStudent:tiers.systemNote});
+        processed++;
+      }catch(err){console.warn("批次分析單筆失敗：",e.id,err);}
+    }
+    return{processed,skipped:events.length-processed,total:events.length};
+  }
+
+  if(fn==="cloudStatus"){
+    const events=await _fbEvents();
+    return{backend:"Firebase Realtime Database",path:"microPolitics/events",project:_FB_CONFIG.projectId,count:events.length,url:_FB_CONFIG.databaseURL,user:_authUser?_authUser.email:"未登入"};
+  }
+
+  if(fn==="cloudWriteTest"){
+    const r=await gasCallCloud("appendEvent",{desc:"【雲端同步測試】確認 GitHub Pages → Firebase 寫入成功。",students:"S-TEST",teacher:"T-W",severity:"低",category:"其他"});
+    return{id:r.id,created_at:new Date().toISOString(),sheet:"microPolitics/events"};
+  }
+
+  if(fn==="init"){ return{message:"Firebase 後端不需初始化表頭"}; }
+
+  return{};
+}
+
+// 一次性遷移：從舊 GAS 後端匯入所有事件到 Firebase（同 id 覆蓋，不會重複）
+async function importFromGAS(){
+  if(getMode()==="local"){alert("請先切換回雲端模式再匯入");return;}
+  if(!_authUser){alert("請先登入 Google 帳戶");return;}
+  if(!confirm("將從舊版 Google Sheet 後端讀取所有事件並匯入 Firebase（同 id 覆蓋，可重複執行）。繼續？"))return;
+  const box=document.getElementById("cloudBox");
+  box.textContent="從舊 GAS 後端讀取中…";
+  try{
+    const r=await fetch(OLD_GAS_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({fn:"getAllEvents",args:{}})});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const list=await r.json();
+    if(!Array.isArray(list))throw new Error("舊後端回傳格式錯誤");
+    let n=0;
+    for(const e of list){
+      if(!e||!e.id)continue;
+      await _mpRef.child(_fbKeySafe(e.id)).set({...e,id:String(e.id)});
+      n++;box.textContent=`匯入中… ${n}/${list.length}`;
+    }
+    box.textContent=`✅ 匯入完成：${n}/${list.length} 筆已寫入 Firebase。\n提醒：確認資料無誤後，請到 Google Apps Script 停用舊部署（封存或改為僅自己存取），舊網址才不會繼續裸露資料。`;
+    await Promise.all([loadAllEvents(),refreshKPIs()]);
+  }catch(e){box.textContent="❌ 匯入失敗："+safeErrMsg(e);}
 }
 
 // ═══════════════════════════════════════
@@ -1706,8 +1933,7 @@ function exportDeidentified(){
 // ═══════════════════════════════════════
 //  CLOUD SYNC
 // ═══════════════════════════════════════
-async function initSheet(){ try{const r=await gasCall("init");alert(r.message||"初始化完成");await Promise.all([loadGlobalAnalysis(),loadHistory(),refreshKPIs()]);}catch(e){alert("初始化失敗："+safeErrMsg(e));} }
-async function checkCloud(){ const box=document.getElementById("cloudBox");box.textContent="檢查中…";try{const r=await gasCall("cloudStatus");box.textContent=["✅ 雲端連線正常","SpreadsheetName: "+r.spreadsheetName,"SheetName: "+r.sheetName,"SpreadsheetId: "+r.spreadsheetId,"LastRow: "+r.lastRow,"URL: "+r.url].join("\n");}catch(e){box.textContent="❌ 雲端連線失敗：\n"+safeErrMsg(e);} }
+async function checkCloud(){ const box=document.getElementById("cloudBox");box.textContent="檢查中…";try{const r=await gasCall("cloudStatus");box.textContent=["✅ Firebase 連線正常","後端: "+r.backend,"專案: "+r.project,"路徑: "+r.path,"事件數: "+r.count,"登入帳戶: "+r.user].join("\n");}catch(e){box.textContent="❌ 雲端連線失敗：\n"+safeErrMsg(e);} }
 async function cloudWriteTest(){ const box=document.getElementById("cloudBox");box.textContent="寫入測試資料中…";try{const r=await gasCall("cloudWriteTest");box.textContent=["✅ 已寫入測試資料","id: "+r.id,"created_at: "+r.created_at,"sheet: "+r.sheet].join("\n");await Promise.all([loadAllEvents(),refreshKPIs(),loadGlobalAnalysis()]);}catch(e){box.textContent="❌ 測試寫入失敗：\n"+safeErrMsg(e);} }
 async function loadAllEvents(){ const wrap=document.getElementById("eventsTableWrap");wrap.innerHTML="載入中…";try{const res=await gasCall("getAllEvents");cachedEvents=Array.isArray(res)?res:[];if(!cachedEvents.length){wrap.innerHTML=`<div class="muted">尚無事件。</div>`;return;}const rows=cachedEvents.map(it=>`<tr><td>${escapeHtml_(it.time||it.created_at||"")}</td><td>${sevBadge(it.severity)}</td><td>${escapeHtml_(it.category||"未分類")}</td><td><b>${escapeHtml_(it.students||"")}</b></td><td>${escapeHtml_((it.desc||"").slice(0,160))}${(it.desc||"").length>160?"…":""}</td></tr>`).join("");wrap.innerHTML=`<table><thead><tr><th>日期/時間</th><th>嚴重度</th><th>分類</th><th>主述人物</th><th>事件內容</th></tr></thead><tbody>${rows}</tbody></table>`;}catch(e){wrap.innerHTML=`<div class="muted">載入失敗：${escapeHtml_(safeErrMsg(e))}</div>`;} }
 async function runBatchAnalyze(){ const btn=document.getElementById("batchBtn"),stat=document.getElementById("batchStatus");btn.disabled=true;btn.textContent="分析中…";stat.textContent=getApiKey()?"正在透過 Gemini AI 批次分析…":"正在呼叫後端…";try{const r=await gasCall("batchAnalyze",{});stat.textContent=`完成！處理 ${r.processed} 筆，跳過 ${r.skipped} 筆`;if(r.processed>0)await Promise.all([loadGlobalAnalysis(),refreshKPIs(),loadHistory()]);}catch(e){stat.textContent="失敗："+safeErrMsg(e);}btn.disabled=false;btn.textContent="▶ 開始批次分析"; }
@@ -1720,30 +1946,8 @@ const LOCAL_EVENTS_KEY = "mp_local_events_v1";
 const MODE_KEY = "mp_mode_v1";
 function getMode(){ return localStorage.getItem(MODE_KEY)||"cloud"; }
 
-function saveGasUrl(){
-  const val=document.getElementById("gasUrlInput").value.trim();
-  if(!val||!val.startsWith("http")){document.getElementById("gasUrlStatus").textContent="❌ 請輸入有效的網址";return;}
-  localStorage.setItem(GAS_URL_KEY,val);
-  document.getElementById("gasUrlStatus").textContent="✅ 已儲存。";
-}
-function resetGasUrl(){
-  localStorage.removeItem(GAS_URL_KEY);
-  document.getElementById("gasUrlInput").value=DEFAULT_BACKEND_URL;
-  document.getElementById("gasUrlStatus").textContent="↩️ 已恢復為預設網址。";
-}
-async function testGasConnection(){
-  const statusEl=document.getElementById("gasUrlStatus");
-  statusEl.textContent="🔍 測試中…";
-  try{
-    const r=await gasCall("cloudStatus");
-    statusEl.textContent=`✅ 連線成功！試算表：${r.spreadsheetName||"(未知)"}，最後一列：${r.lastRow||"?"}`;
-  }catch(e){
-    statusEl.textContent="❌ 連線失敗："+safeErrMsg(e).slice(0,80);
-  }
-}
-
 function exportSettings(){
-  const bundle={_version:2,_exported:new Date().toISOString(),mp_gemini_key_v2:localStorage.getItem("mp_gemini_key_v2")||"",mp_gemini_model_v2:localStorage.getItem("mp_gemini_model_v2")||"",mp_gemini_ver:localStorage.getItem("mp_gemini_ver")||"",mp_profiles_v1:localStorage.getItem("mp_profiles_v1")||"",mp_actions_v1:localStorage.getItem("mp_actions_v1")||"",mp_theme:localStorage.getItem("mp_theme")||"light",mp_local_events_v1:localStorage.getItem("mp_local_events_v1")||"[]",mp_mode_v1:getMode(),mp_gas_url_v1:localStorage.getItem("mp_gas_url_v1")||""};
+  const bundle={_version:3,_exported:new Date().toISOString(),mp_gemini_key_v2:localStorage.getItem("mp_gemini_key_v2")||"",mp_gemini_model_v2:localStorage.getItem("mp_gemini_model_v2")||"",mp_gemini_ver:localStorage.getItem("mp_gemini_ver")||"",mp_profiles_v1:localStorage.getItem("mp_profiles_v1")||"",mp_actions_v1:localStorage.getItem("mp_actions_v1")||"",mp_theme:localStorage.getItem("mp_theme")||"light",mp_local_events_v1:localStorage.getItem("mp_local_events_v1")||"[]",mp_mode_v1:getMode()};
   const blob=new Blob([JSON.stringify(bundle,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob),a=document.createElement("a");
   a.href=url;a.download=`micro-politics-settings-${new Date().toISOString().slice(0,10)}.json`;
@@ -1757,7 +1961,7 @@ function importSettings(input){
     try{
       const bundle=JSON.parse(e.target.result);
       if(!bundle._version){throw new Error("不是有效的設定檔");}
-      const keys=["mp_gemini_key_v2","mp_gemini_model_v2","mp_gemini_ver","mp_profiles_v1","mp_actions_v1","mp_theme","mp_local_events_v1","mp_mode_v1","mp_gas_url_v1"];
+      const keys=["mp_gemini_key_v2","mp_gemini_model_v2","mp_gemini_ver","mp_profiles_v1","mp_actions_v1","mp_theme","mp_local_events_v1","mp_mode_v1"];
       keys.forEach(k=>{if(bundle[k]!==undefined&&bundle[k]!=="")localStorage.setItem(k,bundle[k]);});
       document.getElementById("importStatus").textContent=`✅ 匯入成功（匯出時間：${bundle._exported?.slice(0,16)||"未知"}）。即將重新整理…`;
       setTimeout(()=>location.reload(),1500);
@@ -1776,10 +1980,10 @@ function gasCallLocal(fn,args){
   if(fn==="appendEvent"){const newEvt={id:"local_"+Date.now(),created_at:args.time||new Date().toISOString(),time:args.time||new Date().toISOString(),students:args.students||"",teacher:args.teacher||"",desc:args.desc||"",severity:args.severity||"",category:args.category||"",teacherAdvice:args.teacherAdvice||"",aiAnalysis:args.aiAnalysis||"",principalToTeacher:args.principalToTeacher||"",principalToStudent:args.principalToStudent||"",summary:(args.desc||"").slice(0,80)};events.unshift(newEvt);try{localStorage.setItem(LOCAL_EVENTS_KEY,JSON.stringify(events));}catch(_){}setStatus("就緒");return Promise.resolve({ok:true,id:newEvt.id,severity:newEvt.severity,diag:{}});}
   if(fn==="updateEvent"){const idx=events.findIndex(e=>e.id===args.id);if(idx!==-1){events[idx]={...events[idx],...args};try{localStorage.setItem(LOCAL_EVENTS_KEY,JSON.stringify(events));}catch(_){}}setStatus("就緒");return Promise.resolve({ok:true});}
   if(fn==="getGlobalAnalysis"){const s={重大:0,高:0,中:0,低:0};events.forEach(e=>{const sv=e.severity||"低";if(s[sv]!==undefined)s[sv]++;});return Promise.resolve({text:events.length?`共 ${events.length} 筆（離線模式）\n重大：${s["重大"]}｜高：${s["高"]}｜中：${s["中"]}｜低：${s["低"]}`:"尚無本機事件。",aiPowered:false,analyzed:events.length});}
-  if(fn==="getCrossAnalysis"){const studentStats={},pairStats={};events.forEach(ev=>{const names=(ev.students||"").split(/[,，]/).map(s=>s.trim()).filter(Boolean);names.forEach(name=>{if(!studentStats[name])studentStats[name]={total:0,低:0,中:0,高:0,重大:0,maxSeverity:"低",topCategory:"",categories:{},recentTime:"",recentDesc:""};const s=studentStats[name];s.total++;s[ev.severity||"低"]=(s[ev.severity||"低"]||0)+1;const cats=ev.category||"一般";s.categories[cats]=(s.categories[cats]||0)+1;s.topCategory=Object.entries(s.categories).sort((a,b)=>b[1]-a[1])[0]?.[0]||"";const sevOrd={低:1,中:2,高:3,重大:4};if((sevOrd[ev.severity||"低"]||0)>(sevOrd[s.maxSeverity]||0))s.maxSeverity=ev.severity||"低";if(!s.recentTime){s.recentTime=ev.created_at||"";s.recentDesc=ev.desc||"";}});if(names.length>1){for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++){const key=[names[i],names[j]].sort().join("—");if(!pairStats[key])pairStats[key]={total:0,低:0,中:0,高:0,重大:0,events:[]};const p=pairStats[key];p.total++;p[ev.severity||"低"]=(p[ev.severity||"低"]||0)+1;if(p.events.length<3)p.events.push({sev:ev.severity||"低",time:formatTime_(ev.created_at||""),desc:(ev.desc||"").slice(0,40)});}}});return Promise.resolve({studentStats,pairStats,totalEvents:events.length});}
+  if(fn==="getCrossAnalysis")return Promise.resolve(computeCross(events));
   if(fn==="batchAnalyze")return Promise.resolve({processed:0,skipped:events.length,total:events.length});
-  if(fn==="cloudStatus")return Promise.reject(new Error("離線模式：未連接 Google Script"));
-  if(fn==="cloudWriteTest")return Promise.reject(new Error("離線模式：未連接 Google Script"));
+  if(fn==="cloudStatus")return Promise.reject(new Error("離線模式：未連接 Firebase"));
+  if(fn==="cloudWriteTest")return Promise.reject(new Error("離線模式：未連接 Firebase"));
   if(fn==="init")return Promise.resolve({message:"離線模式不需初始化"});
   return Promise.resolve({});
 }
@@ -1805,11 +2009,10 @@ function updateModeBadge(){
   const badge=document.getElementById("modeBadge");if(!badge)return;
   const mode=getMode();
   if(mode==="local"){badge.textContent="🔌 離線模式";badge.style.cssText="width:100%;text-align:left;font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;cursor:pointer;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.10);color:#92400e;";}
-  else{badge.textContent="☁️ 雲端模式（GAS）";badge.style.cssText="width:100%;text-align:left;font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;cursor:pointer;border:1px solid rgba(37,99,235,.3);background:rgba(37,99,235,.08);color:var(--blue);";}
+  else{badge.textContent="☁️ 雲端模式（Firebase）";badge.style.cssText="width:100%;text-align:left;font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;cursor:pointer;border:1px solid rgba(37,99,235,.3);background:rgba(37,99,235,.08);color:var(--blue);";}
 }
 
-// Start: check PIN first
-checkPin();
+// Start: Firebase auth（onAuthStateChanged）驗證通過後才呼叫 checkPin() → initApp()
 </script>
 </body>
 </html>
