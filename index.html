@@ -1155,9 +1155,12 @@ async function importFromGAS(){
     const list=await r.json();
     if(!Array.isArray(list))throw new Error("舊後端回傳格式錯誤");
     let n=0;
-    for(const e of list){
-      if(!e||!e.id)continue;
-      await _mpRef.child(_fbKeySafe(e.id)).set({...e,id:String(e.id)});
+    for(let i=0;i<list.length;i++){
+      const e=list[i];
+      if(!e||typeof e!=="object")continue;
+      // 手動填在 Sheet 的舊事件沒有 id → 以建立時間+序號產生固定 id，重跑不會重複
+      const id=e.id?String(e.id):("mig_"+(Date.parse(e.created_at||e.time||"")||"x")+"_"+i);
+      await _mpRef.child(_fbKeySafe(id)).set({...e,id});
       n++;box.textContent=`匯入中… ${n}/${list.length}`;
     }
     box.textContent=`✅ 匯入完成：${n}/${list.length} 筆已寫入 Firebase。\n提醒：確認資料無誤後，請到 Google Apps Script 停用舊部署（封存或改為僅自己存取），舊網址才不會繼續裸露資料。`;
