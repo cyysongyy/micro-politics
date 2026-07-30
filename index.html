@@ -345,7 +345,11 @@
       <option value="resolved">已解決</option>
       <option value="escalated">已上報</option>
     </select>
-    <div class="row" style="margin-top:14px">
+    <div class="row" style="margin-top:14px;gap:8px;flex-wrap:wrap;">
+      <button class="btn" style="background:#0f766e;color:#fff;border-color:#0f766e;" onclick="editToTools('tools')">🧰 工具分析</button>
+      <button class="btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed;" onclick="editToTools('o3')">🗣️ O3 對話</button>
+    </div>
+    <div class="row" style="margin-top:10px">
       <button class="btn primary" onclick="saveEditedEvent()">💾 儲存</button>
       <button class="btn" onclick="closeEditModal()">取消</button>
     </div>
@@ -766,19 +770,36 @@ _fbAuth.onAuthStateChanged(user => {
   overlay.style.display = "flex";
 });
 
+// 整頁跳轉（redirect）登入回來後，補接結果並把真正的錯誤顯示出來
+_fbAuth.getRedirectResult().catch(err => {
+  if (err && err.code) _authMsg("❌ 登入失敗（" + err.code + "）：" + (err.message || ""), true);
+});
+
+function _isMobile() {
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1);
+}
+
 function doLogin() {
   const provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
   _authMsg("登入中…", false);
+  // 手機（尤其 iOS Safari）彈出視窗不穩，直接用整頁跳轉登入
+  if (_isMobile()) {
+    _fbAuth.signInWithRedirect(provider).catch(err => {
+      _authMsg("❌ 登入失敗（" + (err && err.code || "") + "）：" + (err && err.message || err), true);
+    });
+    return;
+  }
   _fbAuth.signInWithPopup(provider).catch(err => {
-    if (err && err.code === "auth/popup-blocked") {
-      _fbAuth.signInWithRedirect(provider); // 彈出視窗被擋 → 改用整頁跳轉
+    const code = err && err.code;
+    if (code === "auth/popup-blocked" || code === "auth/cancelled-popup-request" || code === "auth/operation-not-supported-in-this-environment") {
+      _fbAuth.signInWithRedirect(provider).catch(e2 => {
+        _authMsg("❌ 登入失敗（" + (e2 && e2.code || "") + "）：" + (e2 && e2.message || e2), true);
+      });
       return;
     }
-    if (err && (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request")) {
-      _authMsg("", false);
-      return;
-    }
-    _authMsg("❌ 登入失敗：" + (err && err.message || err), true);
+    if (code === "auth/popup-closed-by-user") { _authMsg("", false); return; }
+    _authMsg("❌ 登入失敗（" + (code || "") + "）：" + (err && err.message || err), true);
   });
 }
 
@@ -1672,6 +1693,29 @@ function openEditEvent(idx){
   document.getElementById("editModal").dataset.idx=idx;
 }
 function closeEditModal(){document.getElementById("editModal").classList.remove("open");}
+
+// 從「編輯事件」視窗直接觸發工具分析 / O3（用視窗內最新的欄位值 + 既有建議）
+function editToTools(mode){
+  const idx=parseInt(document.getElementById("editModal").dataset.idx);
+  const base=(globalEvents&&globalEvents[idx])?globalEvents[idx]:{};
+  const it=Object.assign({},base,{
+    time:document.getElementById("editTime").value,
+    students:document.getElementById("editStudents").value,
+    teacher:document.getElementById("editTeacher").value,
+    desc:document.getElementById("editDesc").value,
+    severity:document.getElementById("editSeverity").value,
+  });
+  if(!(it.desc||"").trim()){alert("事件描述為空");return;}
+  const content=buildToolContentFromEvent(it);
+  closeEditModal();
+  if(mode==="o3"){
+    if(typeof window.openToolsO3!=="function"){alert("工具分析模組尚未載入，請重新整理頁面");return;}
+    window.openToolsO3(content);
+  }else{
+    if(typeof window.openTools!=="function"){alert("工具分析模組尚未載入，請重新整理頁面");return;}
+    window.openTools(content);
+  }
+}
 async function saveEditedEvent(){
   const idx=parseInt(document.getElementById("editModal").dataset.idx);
   const e=globalEvents[idx];if(!e){closeEditModal();return;}
