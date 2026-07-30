@@ -44,10 +44,46 @@
   function mdBold(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^#+\s?(.*)$/gm, '<b>$1</b>'); }
 
   var modal = null;
+  var EVENTS = [];
   var IS = 'width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box';
   var BS = 'width:100%;padding:12px;background:#0f766e;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px';
   function fld(l, inner) { return '<div style="margin-bottom:12px"><div style="font-size:12px;color:#6b7280;font-weight:600;margin-bottom:4px">' + l + '</div>' + inner + '</div>'; }
   function toolOpts() { return TOOLS.map(function (t) { return '<option value="' + t.id + '">' + t.name + '</option>'; }).join(''); }
+
+  /* 把單一事件（含既有校長三層建議）組成分析用內容 */
+  function eventToContent(e) {
+    var parts = ['事件描述：' + (e.desc || '')];
+    if (e.students) parts.push('主述人物：' + e.students);
+    if (e.teacher) parts.push('導師：' + e.teacher);
+    var t = e.created_at || e.time; if (t) parts.push('時間：' + t);
+    if (e.severity) parts.push('嚴重性：' + e.severity);
+    if (e.category) parts.push('分類：' + e.category);
+    var adv = [];
+    if (e.teacherAdvice) adv.push('→ 訓導組長：' + e.teacherAdvice);
+    if (e.aiAnalysis) adv.push('→ 導師：' + e.aiAnalysis);
+    if (e.principalToTeacher) adv.push('→ 學生：' + e.principalToTeacher);
+    if (e.principalToStudent) adv.push('→ 系統備註：' + e.principalToStudent);
+    if (adv.length) { parts.push(''); parts.push('【既有校長三層建議（供參考）】'); parts = parts.concat(adv); }
+    return parts.join('\n');
+  }
+
+  /* 載入雲端歷史事件，填入下拉選單（沿用 App 既有的 window._fbEvents） */
+  function loadEventOptions() {
+    var sel = modal && modal.querySelector('#tlEvent');
+    if (!sel || typeof window._fbEvents !== 'function') return;
+    window._fbEvents().then(function (evs) {
+      EVENTS = Array.isArray(evs) ? evs : [];
+      var opts = '<option value="">— 直接輸入，或選一筆歷史事件帶入 —</option>';
+      EVENTS.slice().reverse().forEach(function (e) {
+        var realIdx = EVENTS.indexOf(e);
+        var d = String(e.created_at || e.time || '').slice(0, 16);
+        var who = (e.students || '—');
+        var desc = (e.desc || '').slice(0, 18);
+        opts += '<option value="' + realIdx + '">' + esc((d ? d + '｜' : '') + who + '｜' + desc) + '</option>';
+      });
+      if (modal && modal.querySelector('#tlEvent')) modal.querySelector('#tlEvent').innerHTML = opts;
+    }).catch(function () {});
+  }
 
   function buildModal() {
     modal = document.createElement('div');
@@ -67,10 +103,18 @@
   function paint() {
     var body = modal.querySelector('#tlBody');
     body.innerHTML = fld('選擇分析工具', '<select id="tlTool" style="' + IS + '">' + toolOpts() + '</select>')
+      + fld('從歷史事件帶入（選填）', '<select id="tlEvent" style="' + IS + '"><option value="">載入雲端事件中…</option></select>')
       + fld('事件內容', '<textarea id="tlContent" rows="5" placeholder="描述要分析的事件或情況，例：資深老師抱怨又要弄新計畫、增加負擔…" style="' + IS + ';resize:vertical"></textarea>')
-      + '<button id="tlRun" style="' + BS + '">🔍 用 AI 分析</button>'
+      + '<button id="tlRun" style="' + BS + '">🔍 用 AI 分析（分析完自動接 O3 對話）</button>'
       + '<div id="tlResult" style="margin-top:14px"></div>';
     body.querySelector('#tlRun').onclick = run;
+    var evSel = body.querySelector('#tlEvent');
+    evSel.onchange = function () {
+      if (evSel.value === '') return;
+      var e = EVENTS[+evSel.value];
+      if (e) body.querySelector('#tlContent').value = eventToContent(e);
+    };
+    loadEventOptions();
   }
 
   function run() {
@@ -91,7 +135,10 @@
         + '<div id="tlO3Result" style="margin-top:14px"></div>';
       out.querySelector('#tlCopy').onclick = function () { try { navigator.clipboard.writeText(t); this.textContent = '✓ 已複製'; } catch (e) {} };
       var savedContent = content;
-      out.querySelector('#tlO3').onclick = function () { runO3(savedContent, out.querySelector('#tlO3Result'), this); };
+      var o3Btn = out.querySelector('#tlO3');
+      o3Btn.onclick = function () { runO3(savedContent, out.querySelector('#tlO3Result'), this); };
+      // 分析完立刻自動接 O3 對話系統（不需再手動點）
+      runO3(savedContent, out.querySelector('#tlO3Result'), o3Btn);
     }, function (e) { out.innerHTML = '<div style="color:#ef4444;font-size:13px">' + esc(e) + '</div>'; });
   }
 
