@@ -506,6 +506,11 @@
           <pre id="diag3_teacher">（尚未產生）</pre>
           <div style="height:8px"></div>
           <pre id="diag3_student">（尚未產生）</pre>
+          <div style="height:12px"></div>
+          <div class="row">
+            <button class="btn primary" onclick="sendToTools()" style="background:#0f766e;border-color:#0f766e;">🧰 帶入工具分析</button>
+          </div>
+          <div class="mini" style="margin-top:6px;color:var(--muted)">用框架（冰山／4F／SMART／艾森豪／導航雙矩陣）進一步拆解，再產生 O3 對話 → 形成「診斷 → 分析 → 對話」完整處理鏈。</div>
         </div>
         <div class="card">
           <h2>事件歷史</h2>
@@ -1478,6 +1483,35 @@ function fillDemo(){
   document.getElementById("evtStudents").value="S-W";
   document.getElementById("evtTeacher").value="T-W";
   document.getElementById("evtDesc").value="SEL期中研習公開圍圈中，導師W表示近期投訴增加讓其感到煩躁，並認為大家過度關注學生W。";
+}
+
+// 串聯：把事件診斷的內容帶入「工具分析」模組
+function sendToTools(){
+  const desc=document.getElementById("evtDesc").value.trim();
+  if(!desc){alert("請先填寫事件描述");return;}
+  const students=document.getElementById("evtStudents").value.trim();
+  const teacher=document.getElementById("evtTeacher").value.trim();
+  const time=document.getElementById("evtTime").value.trim();
+  const parts=["事件描述："+desc];
+  if(students)parts.push("主述人物："+students);
+  if(teacher)parts.push("導師："+teacher);
+  if(time)parts.push("時間："+time);
+  const meta=document.getElementById("autoMeta").textContent.trim();
+  if(meta && meta.indexOf("—")<0)parts.push("系統判斷："+meta.replace(/\s+/g," "));
+  const done=t=>t && !/尚未產生|生成中|（無）/.test(t);
+  const d1=document.getElementById("diag1").textContent.trim();
+  const d2=document.getElementById("diag2").textContent.trim();
+  const d3=document.getElementById("diag3_teacher").textContent.trim();
+  const d4=document.getElementById("diag3_student").textContent.trim();
+  if(done(d1)||done(d2)){
+    parts.push("\n【校長視野三層建議（供框架分析參考）】");
+    if(done(d1))parts.push("→ 訓導組長："+d1);
+    if(done(d2))parts.push("→ 導師："+d2);
+    if(done(d3))parts.push("→ 學生："+d3);
+    if(done(d4))parts.push("→ 系統備註："+d4);
+  }
+  if(typeof window.openTools!=="function"){alert("工具分析模組尚未載入，請重新整理頁面");return;}
+  window.openTools(parts.join("\n"));
 }
 
 async function runDiagnosis(){
