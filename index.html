@@ -506,6 +506,11 @@
           <pre id="diag3_teacher">（尚未產生）</pre>
           <div style="height:8px"></div>
           <pre id="diag3_student">（尚未產生）</pre>
+          <div style="height:12px"></div>
+          <div class="row">
+            <button class="btn primary" onclick="sendToTools()" style="background:#0f766e;border-color:#0f766e;">🧰 帶入工具分析</button>
+          </div>
+          <div class="mini" style="margin-top:6px;color:var(--muted)">用框架（冰山／4F／SMART／艾森豪／導航雙矩陣）進一步拆解，再產生 O3 對話 → 形成「診斷 → 分析 → 對話」完整處理鏈。</div>
         </div>
         <div class="card">
           <h2>事件歷史</h2>
@@ -517,6 +522,7 @@
             <select id="olderSelect" onchange="showOlderSelected()"></select>
             <div style="height:8px"></div>
             <pre id="olderPreview">（選擇後顯示摘要）</pre>
+            <div id="olderActions" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"></div>
           </div>
           <div style="height:10px"></div>
           <button class="btn primary" onclick="loadHistory()">重新載入</button>
@@ -1480,6 +1486,66 @@ function fillDemo(){
   document.getElementById("evtDesc").value="SEL期中研習公開圍圈中，導師W表示近期投訴增加讓其感到煩躁，並認為大家過度關注學生W。";
 }
 
+// 串聯：把事件診斷的內容帶入「工具分析」模組
+function sendToTools(){
+  const desc=document.getElementById("evtDesc").value.trim();
+  if(!desc){alert("請先填寫事件描述");return;}
+  const students=document.getElementById("evtStudents").value.trim();
+  const teacher=document.getElementById("evtTeacher").value.trim();
+  const time=document.getElementById("evtTime").value.trim();
+  const parts=["事件描述："+desc];
+  if(students)parts.push("主述人物："+students);
+  if(teacher)parts.push("導師："+teacher);
+  if(time)parts.push("時間："+time);
+  const meta=document.getElementById("autoMeta").textContent.trim();
+  if(meta && meta.indexOf("—")<0)parts.push("系統判斷："+meta.replace(/\s+/g," "));
+  const done=t=>t && !/尚未產生|生成中|（無）/.test(t);
+  const d1=document.getElementById("diag1").textContent.trim();
+  const d2=document.getElementById("diag2").textContent.trim();
+  const d3=document.getElementById("diag3_teacher").textContent.trim();
+  const d4=document.getElementById("diag3_student").textContent.trim();
+  if(done(d1)||done(d2)){
+    parts.push("\n【校長視野三層建議（供框架分析參考）】");
+    if(done(d1))parts.push("→ 訓導組長："+d1);
+    if(done(d2))parts.push("→ 導師："+d2);
+    if(done(d3))parts.push("→ 學生："+d3);
+    if(done(d4))parts.push("→ 系統備註："+d4);
+  }
+  if(typeof window.openTools!=="function"){alert("工具分析模組尚未載入，請重新整理頁面");return;}
+  window.openTools(parts.join("\n"));
+}
+
+// 把單一事件（含既有校長三層建議）組成工具分析用的內容
+function buildToolContentFromEvent(it){
+  const parts=["事件描述："+(it.desc||"")];
+  if(it.students)parts.push("主述人物："+it.students);
+  if(it.teacher)parts.push("導師："+it.teacher);
+  const t=it.created_at||it.time; if(t)parts.push("時間："+t);
+  if(it.severity)parts.push("嚴重性："+it.severity);
+  if(it.category)parts.push("分類："+it.category);
+  const adv=[];
+  if(it.teacherAdvice)adv.push("→ 訓導組長："+it.teacherAdvice);
+  if(it.aiAnalysis)adv.push("→ 導師："+it.aiAnalysis);
+  if(it.principalToTeacher)adv.push("→ 學生："+it.principalToTeacher);
+  if(it.principalToStudent)adv.push("→ 系統備註："+it.principalToStudent);
+  if(adv.length){parts.push("");parts.push("【既有校長三層建議（供參考）】");parts.push(...adv);}
+  return parts.join("\n");
+}
+
+// 事件歷史 → 觸發工具分析 / O3（idx 為 cachedAll 的索引）
+function historyToTools(idx,mode){
+  const it=cachedAll[idx];
+  if(!it){alert("找不到事件");return;}
+  const content=buildToolContentFromEvent(it);
+  if(mode==="o3"){
+    if(typeof window.openToolsO3!=="function"){alert("工具分析模組尚未載入，請重新整理頁面");return;}
+    window.openToolsO3(content);
+  }else{
+    if(typeof window.openTools!=="function"){alert("工具分析模組尚未載入，請重新整理頁面");return;}
+    window.openTools(content);
+  }
+}
+
 async function runDiagnosis(){
   const payload={time:document.getElementById("evtTime").value.trim(),desc:document.getElementById("evtDesc").value.trim(),students:document.getElementById("evtStudents").value.trim(),teacher:document.getElementById("evtTeacher").value.trim()};
   if(!payload.desc){alert("請填寫事件描述");return;}
@@ -1557,14 +1623,18 @@ async function loadHistory(){
     const total=cachedAll.length;meta.textContent=`總紀錄：${total}（雲端可無限疊加）`;
     if(!total){list.innerHTML=`<div class="muted">尚無診斷紀錄。</div>`;return;}
     list.innerHTML="";
-    cachedAll.slice(0,Math.min(10,total)).forEach(it=>{
+    cachedAll.slice(0,Math.min(10,total)).forEach((it,gi)=>{
       const div=document.createElement("div");div.className="historyItem";
       const txt=`${it.created_at||it.time||""} ${it.students||""} ${it.desc||""}`;
       div.dataset.text=txt.toLowerCase();div.dataset.sev=it.severity||"";div.dataset.persons=it.students||"";
       const evStatus=it.evStatus||"pending";
       div.innerHTML=`<div class="t" style="display:flex;align-items:center;justify-content:space-between;">${escapeHtml_(it.created_at||it.time||"")} ${statusBadge(evStatus)}</div>
         <div class="s">${sevBadge(it.severity)}<b style="margin-left:8px;">${escapeHtml_((it.students||"").trim()||"（未填人物）")}</b></div>
-        <div class="muted" style="margin-top:4px;">${escapeHtml_(it.summary||it.desc?.slice(0,80)||"")}</div>`;
+        <div class="muted" style="margin-top:4px;">${escapeHtml_(it.summary||it.desc?.slice(0,80)||"")}</div>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+          <button class="btn" style="padding:5px 10px;font-size:12px;background:#0f766e;color:#fff;border-color:#0f766e;" onclick="historyToTools(${gi},'tools')">🧰 工具分析</button>
+          <button class="btn" style="padding:5px 10px;font-size:12px;background:#7c3aed;color:#fff;border-color:#7c3aed;" onclick="historyToTools(${gi},'o3')">🗣️ O3 對話</button>
+        </div>`;
       list.appendChild(div);
     });
     if(total>10){
@@ -1576,9 +1646,13 @@ async function loadHistory(){
 
 function showOlderSelected(){
   const v=document.getElementById("olderSelect").value,pre=document.getElementById("olderPreview");
-  if(v===""){pre.textContent="（選擇後顯示摘要）";return;}
-  const it=olderItems[+v];if(!it){pre.textContent="（找不到）";return;}
+  const act=document.getElementById("olderActions");
+  if(v===""){pre.textContent="（選擇後顯示摘要）";if(act)act.innerHTML="";return;}
+  const it=olderItems[+v];if(!it){pre.textContent="（找不到）";if(act)act.innerHTML="";return;}
   pre.textContent=[`時間：${it.created_at||it.time||""}`,`人物：${it.students||""}`,`嚴重性：${it.severity||""}`,`摘要：${it.summary||it.desc?.slice(0,80)||""}`,`狀態：${it.evStatus||"pending"}`,"","事件內容：",it.desc||""].join("\n");
+  const idx=10+(+v);
+  if(act)act.innerHTML=`<button class="btn" style="padding:5px 10px;font-size:12px;background:#0f766e;color:#fff;border-color:#0f766e;" onclick="historyToTools(${idx},'tools')">🧰 工具分析</button>
+    <button class="btn" style="padding:5px 10px;font-size:12px;background:#7c3aed;color:#fff;border-color:#7c3aed;" onclick="historyToTools(${idx},'o3')">🗣️ O3 對話</button>`;
 }
 
 // ═══════════════════════════════════════

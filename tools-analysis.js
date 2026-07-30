@@ -108,7 +108,39 @@
     }, function (e) { outEl.innerHTML = '<div style="color:#ef4444;font-size:13px">' + esc(e) + '</div>'; btn.textContent = '🗣️ 產生 O3 對話腳本'; btn.disabled = false; });
   }
 
-  window.openTools = function () { if (!modal) buildModal(); modal.style.display = 'flex'; paint(); };
+  window.openTools = function (prefill) {
+    if (!modal) buildModal();
+    modal.style.display = 'flex';
+    paint();
+    var body = modal.querySelector('#tlBody');
+    if (typeof prefill === 'string' && prefill.trim()) {
+      var ta = body.querySelector('#tlContent');
+      if (ta) ta.value = prefill.trim();
+      var banner = document.createElement('div');
+      banner.style.cssText = 'background:#ecfdf5;border:1px solid #99f6e4;color:#0f766e;font-size:12px;font-weight:600;line-height:1.5;padding:8px 10px;border-radius:8px;margin-bottom:12px';
+      banner.textContent = '🔗 已從「事件診斷」帶入內容 → 選一個框架分析 → 再按「產生 O3 對話腳本」完成整條處理鏈。';
+      body.insertBefore(banner, body.firstChild);
+    }
+  };
+
+  /* 直接對事件產生 O3 對話腳本（供事件歷史「🗣️ O3 對話」使用） */
+  window.openToolsO3 = function (prefill) {
+    if (!modal) buildModal();
+    modal.style.display = 'flex';
+    paint();
+    var body = modal.querySelector('#tlBody');
+    var ta = body.querySelector('#tlContent');
+    var content = (typeof prefill === 'string' ? prefill.trim() : '');
+    if (ta) ta.value = content;
+    var banner = document.createElement('div');
+    banner.style.cssText = 'background:#faf5ff;border:1px solid #ddd6fe;color:#7c3aed;font-size:12px;font-weight:600;line-height:1.5;padding:8px 10px;border-radius:8px;margin-bottom:12px';
+    banner.textContent = '🔗 已帶入事件並直接產生 O3 對話腳本。上方仍可另選框架做進一步拆解。';
+    body.insertBefore(banner, body.firstChild);
+    var out = body.querySelector('#tlResult');
+    if (!content) { out.innerHTML = '<div style="color:#ef4444;font-size:13px">事件內容為空</div>'; return; }
+    out.innerHTML = '<div id="tlO3Result"></div>';
+    runO3(content, out.querySelector('#tlO3Result'), { textContent: '', disabled: false });
+  };
 
   /* ---------- 入口按鈕（浮動；與冰山 O3 錯開，避免重疊） ---------- */
   function buildFab() {
