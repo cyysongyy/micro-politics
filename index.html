@@ -247,18 +247,46 @@
     <h2>⚙️ 系統設定</h2>
     <div class="desc">金鑰儲存於瀏覽器 localStorage，不上傳任何伺服器。<br>
       <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--blue);">取得 Google AI Studio 金鑰 →</a></div>
-    <h3>Gemini API Key</h3>
-    <div class="key-field">
-      <input id="apiKeyInput" type="password" placeholder="貼上您的 Gemini API Key" autocomplete="off" />
-      <button class="key-toggle" onclick="toggleKeyVis()" title="顯示/隱藏">👁</button>
+    <h3>AI 供應商</h3>
+    <select id="aiProvider" onchange="onProviderChange()" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:14px;">
+      <option value="gemini">Google Gemini</option>
+      <option value="nvidia">NVIDIA NIM</option>
+    </select>
+
+    <div id="geminiSection" style="margin-top:14px">
+      <h3>Gemini API Key</h3>
+      <div class="key-field">
+        <input id="apiKeyInput" type="password" placeholder="貼上您的 Gemini API Key" autocomplete="off" />
+        <button class="key-toggle" onclick="toggleKeyVis()" title="顯示/隱藏">👁</button>
+      </div>
+      <div class="key-status-row" id="keyStatusRow">
+        <div class="key-status-dot dot-no" id="keyDot"></div>
+        <span id="keyStatusText" style="font-size:12px;color:var(--muted);">尚未設定</span>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" onclick="testAndSaveKey()">✅ 驗證並儲存</button>
+        <button class="btn danger" onclick="clearApiKey()">🗑 清除金鑰</button>
+      </div>
     </div>
-    <div class="key-status-row" id="keyStatusRow">
-      <div class="key-status-dot dot-no" id="keyDot"></div>
-      <span id="keyStatusText" style="font-size:12px;color:var(--muted);">尚未設定</span>
-    </div>
-    <div class="row" style="margin-top:10px">
-      <button class="btn primary" onclick="testAndSaveKey()">✅ 驗證並儲存</button>
-      <button class="btn danger" onclick="clearApiKey()">🗑 清除金鑰</button>
+
+    <div id="nvidiaSection" style="margin-top:14px;display:none">
+      <h3>NVIDIA API Key</h3>
+      <div class="desc" style="margin-bottom:8px"><a href="https://build.nvidia.com/" target="_blank" style="color:var(--blue);">到 build.nvidia.com 取得金鑰（nvapi-…）→</a></div>
+      <div class="key-field">
+        <input id="nvKeyInput" type="password" placeholder="貼上 NVIDIA API Key（nvapi-…）" autocomplete="off" />
+        <button class="key-toggle" onclick="toggleNvKeyVis()" title="顯示/隱藏">👁</button>
+      </div>
+      <label style="font-size:12px;color:var(--muted);">模型名稱</label>
+      <input id="nvModelInput" type="text" placeholder="meta/llama-3.1-70b-instruct" />
+      <div class="key-status-row">
+        <div class="key-status-dot dot-no" id="nvDot"></div>
+        <span id="nvStatusText" style="font-size:12px;color:var(--muted);">尚未設定</span>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" onclick="testAndSaveNvidia()">✅ 驗證並儲存</button>
+        <button class="btn danger" onclick="clearNvidiaKey()">🗑 清除金鑰</button>
+      </div>
+      <div class="muted" style="font-size:11px;margin-top:8px">⚠️ 若驗證出現連線／CORS 錯誤，代表 NVIDIA API 不允許瀏覽器直接呼叫，需改用 Gemini 或另設代理伺服器。</div>
     </div>
     <div style="height:18px;border-top:1px solid var(--line);margin-top:18px;padding-top:18px;">
       <h3 style="margin:0 0 10px;">🔒 PIN 碼設定</h3>
@@ -718,6 +746,12 @@ const MODEL_STORAGE   = "mp_gemini_model_v2";
 const PIN_STORAGE     = "mp_pin_v1";
 const ACTIONS_STORAGE = "mp_actions_v1";
 const PREFERRED_MODELS = ["gemini-1.5-flash","gemini-1.5-flash-8b","gemini-1.5-pro","gemini-1.0-pro","gemini-pro"];
+// ── NVIDIA NIM（OpenAI 相容）供應商 ──
+const NVIDIA_BASE      = "https://integrate.api.nvidia.com/v1";
+const NV_KEY_STORAGE   = "mp_nvidia_key_v1";
+const NV_MODEL_STORAGE = "mp_nvidia_model_v1";
+const PROVIDER_STORAGE = "mp_ai_provider";
+const NV_DEFAULT_MODEL = "meta/llama-3.1-70b-instruct";
 
 let cachedAll = [], olderItems = [], cachedEvents = [], globalEvents = [];
 let crossData = null;
@@ -886,7 +920,12 @@ function setTheme(t) {
 // ═══════════════════════════════════════
 //  GEMINI KEY MANAGEMENT
 // ═══════════════════════════════════════
-function getApiKey() { try{return localStorage.getItem(API_KEY_STORAGE)||"";}catch(_){return "";} }
+function getProvider() { try{return localStorage.getItem(PROVIDER_STORAGE)||"gemini";}catch(_){return "gemini";} }
+function getGeminiKey() { try{return localStorage.getItem(API_KEY_STORAGE)||"";}catch(_){return "";} }
+function getNvKey() { try{return localStorage.getItem(NV_KEY_STORAGE)||"";}catch(_){return "";} }
+function getNvModel() { try{return localStorage.getItem(NV_MODEL_STORAGE)||NV_DEFAULT_MODEL;}catch(_){return NV_DEFAULT_MODEL;} }
+// getApiKey() 回傳「目前所選供應商」的金鑰，讓全站既有的 if(getApiKey()) 判斷不必改動
+function getApiKey() { return getProvider()==="nvidia" ? getNvKey() : getGeminiKey(); }
 function saveApiKey(k) { try{localStorage.setItem(API_KEY_STORAGE,k.trim());}catch(_){} updateKeyBadge(); }
 function clearApiKey() {
   try{localStorage.removeItem(API_KEY_STORAGE);}catch(_){}
@@ -896,12 +935,17 @@ function clearApiKey() {
 }
 function updateKeyBadge() {
   const b = document.getElementById("aiKeyBadge");
-  if (getApiKey()) { b.textContent="✨ Gemini AI 已啟用"; b.className="key-set"; }
+  if (getApiKey()) { b.textContent = getProvider()==="nvidia" ? "✨ NVIDIA AI 已啟用" : "✨ Gemini AI 已啟用"; b.className="key-set"; }
   else { b.textContent="⚠️ 未設定 AI Key"; b.className="key-unset"; }
 }
 function openSettings() {
-  document.getElementById("apiKeyInput").value = getApiKey();
-  updateKeyStatusRow(getApiKey()?"已設定":"尚未設定",getApiKey()?"dot-ok":"dot-no");
+  document.getElementById("aiProvider").value = getProvider();
+  document.getElementById("apiKeyInput").value = getGeminiKey();
+  document.getElementById("nvKeyInput").value = getNvKey();
+  document.getElementById("nvModelInput").value = getNvModel();
+  onProviderChange();
+  updateKeyStatusRow(getGeminiKey()?"已設定":"尚未設定",getGeminiKey()?"dot-ok":"dot-no");
+  updateNvStatus(getNvKey()?("已設定："+getNvModel()):"尚未設定",getNvKey()?"dot-ok":"dot-no");
   document.getElementById("accountEmail").textContent = _authUser ? ("✅ "+_authUser.email) : "未登入";
   const mode=getMode();
   document.getElementById("modeStatus").textContent = mode==="local"
@@ -912,6 +956,43 @@ function openSettings() {
 }
 function closeSettings() { document.getElementById("settingsModal").classList.remove("open"); }
 function toggleKeyVis() { const i=document.getElementById("apiKeyInput"); i.type=i.type==="password"?"text":"password"; }
+function toggleNvKeyVis() { const i=document.getElementById("nvKeyInput"); i.type=i.type==="password"?"text":"password"; }
+function updateNvStatus(msg,dotClass) {
+  const t=document.getElementById("nvStatusText"), d=document.getElementById("nvDot");
+  if(t)t.textContent=msg; if(d)d.className="key-status-dot "+dotClass;
+}
+// 切換供應商：儲存選擇、顯示對應區塊、更新徽章
+function onProviderChange() {
+  const p=document.getElementById("aiProvider").value;
+  try{localStorage.setItem(PROVIDER_STORAGE,p);}catch(_){}
+  const g=document.getElementById("geminiSection"), n=document.getElementById("nvidiaSection");
+  if(g)g.style.display=(p==="gemini")?"block":"none";
+  if(n)n.style.display=(p==="nvidia")?"block":"none";
+  updateKeyBadge();
+}
+async function testAndSaveNvidia() {
+  const val=document.getElementById("nvKeyInput").value.trim();
+  const model=document.getElementById("nvModelInput").value.trim()||NV_DEFAULT_MODEL;
+  if(!val){updateNvStatus("請輸入 NVIDIA API Key","dot-err");return;}
+  updateNvStatus("🔍 驗證中…","dot-no");
+  try{
+    const r=await fetch(NVIDIA_BASE+"/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+val},body:JSON.stringify({model:model,messages:[{role:"user",content:"hi"}],max_tokens:5})});
+    if(!r.ok){const e=await r.json().catch(()=>({}));updateNvStatus("❌ 失敗："+String(e?.error?.message||e?.detail||("HTTP "+r.status)).slice(0,90),"dot-err");return;}
+    try{localStorage.setItem(NV_KEY_STORAGE,val);localStorage.setItem(NV_MODEL_STORAGE,model);localStorage.setItem(PROVIDER_STORAGE,"nvidia");}catch(_){}
+    document.getElementById("aiProvider").value="nvidia";
+    updateKeyBadge();
+    updateNvStatus("✅ 成功！模型："+model,"dot-ok");
+    setTimeout(closeSettings,1800);
+  }catch(e){
+    updateNvStatus("❌ 連線失敗（可能是瀏覽器 CORS 限制）："+String(e.message||e).slice(0,70),"dot-err");
+  }
+}
+function clearNvidiaKey() {
+  try{localStorage.removeItem(NV_KEY_STORAGE);}catch(_){}
+  document.getElementById("nvKeyInput").value="";
+  updateNvStatus("金鑰已清除","dot-no");
+  updateKeyBadge();
+}
 function updateKeyStatusRow(msg,dotClass) {
   document.getElementById("keyStatusText").textContent = msg;
   document.getElementById("keyDot").className = "key-status-dot "+dotClass;
@@ -948,6 +1029,9 @@ async function testAndSaveKey() {
   saveApiKey(val);
   localStorage.setItem(MODEL_STORAGE,chosenModel);
   localStorage.setItem("mp_gemini_ver",chosenVer);
+  localStorage.setItem(PROVIDER_STORAGE,"gemini");
+  document.getElementById("aiProvider").value="gemini";
+  updateKeyBadge();
   updateKeyStatusRow(`✅ 成功！模型：${chosenModel} (${chosenVer})`,"dot-ok");
   setTimeout(closeSettings,1800);
 }
@@ -955,8 +1039,10 @@ async function testAndSaveKey() {
 // ═══════════════════════════════════════
 //  GEMINI CALL
 // ═══════════════════════════════════════
+// 統一入口：依所選供應商分派（全站沿用 callGemini，不需改各呼叫點）
 async function callGemini(prompt,maxTokens=1200){
-  const key=getApiKey(); if(!key)return null;
+  if(getProvider()==="nvidia") return await callNvidia(prompt,maxTokens);
+  const key=getGeminiKey(); if(!key)return null;
   const model=getActiveModel();
   const ver=localStorage.getItem("mp_gemini_ver")||"v1beta";
   const url=getGeminiUrl(model,ver)+`?key=${key}`;
@@ -964,6 +1050,16 @@ async function callGemini(prompt,maxTokens=1200){
   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e?.error?.message||"Gemini "+r.status);}
   const data=await r.json();
   return data.candidates?.[0]?.content?.parts?.[0]?.text||null;
+}
+
+// NVIDIA NIM（OpenAI 相容 chat/completions）
+async function callNvidia(prompt,maxTokens=1200){
+  const key=getNvKey(); if(!key)return null;
+  const model=getNvModel();
+  const r=await fetch(NVIDIA_BASE+"/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},body:JSON.stringify({model:model,messages:[{role:"user",content:prompt}],temperature:0.65,max_tokens:maxTokens})});
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(String(e?.error?.message||e?.detail||("NVIDIA "+r.status)));}
+  const data=await r.json();
+  return data.choices?.[0]?.message?.content||null;
 }
 
 async function aiClassify(payload){
@@ -2068,7 +2164,7 @@ const MODE_KEY = "mp_mode_v1";
 function getMode(){ return localStorage.getItem(MODE_KEY)||"cloud"; }
 
 function exportSettings(){
-  const bundle={_version:3,_exported:new Date().toISOString(),mp_gemini_key_v2:localStorage.getItem("mp_gemini_key_v2")||"",mp_gemini_model_v2:localStorage.getItem("mp_gemini_model_v2")||"",mp_gemini_ver:localStorage.getItem("mp_gemini_ver")||"",mp_profiles_v1:localStorage.getItem("mp_profiles_v1")||"",mp_actions_v1:localStorage.getItem("mp_actions_v1")||"",mp_theme:localStorage.getItem("mp_theme")||"light",mp_local_events_v1:localStorage.getItem("mp_local_events_v1")||"[]",mp_mode_v1:getMode()};
+  const bundle={_version:3,_exported:new Date().toISOString(),mp_gemini_key_v2:localStorage.getItem("mp_gemini_key_v2")||"",mp_gemini_model_v2:localStorage.getItem("mp_gemini_model_v2")||"",mp_gemini_ver:localStorage.getItem("mp_gemini_ver")||"",mp_nvidia_key_v1:localStorage.getItem("mp_nvidia_key_v1")||"",mp_nvidia_model_v1:localStorage.getItem("mp_nvidia_model_v1")||"",mp_ai_provider:localStorage.getItem("mp_ai_provider")||"gemini",mp_profiles_v1:localStorage.getItem("mp_profiles_v1")||"",mp_actions_v1:localStorage.getItem("mp_actions_v1")||"",mp_theme:localStorage.getItem("mp_theme")||"light",mp_local_events_v1:localStorage.getItem("mp_local_events_v1")||"[]",mp_mode_v1:getMode()};
   const blob=new Blob([JSON.stringify(bundle,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob),a=document.createElement("a");
   a.href=url;a.download=`micro-politics-settings-${new Date().toISOString().slice(0,10)}.json`;
@@ -2082,7 +2178,7 @@ function importSettings(input){
     try{
       const bundle=JSON.parse(e.target.result);
       if(!bundle._version){throw new Error("不是有效的設定檔");}
-      const keys=["mp_gemini_key_v2","mp_gemini_model_v2","mp_gemini_ver","mp_profiles_v1","mp_actions_v1","mp_theme","mp_local_events_v1","mp_mode_v1"];
+      const keys=["mp_gemini_key_v2","mp_gemini_model_v2","mp_gemini_ver","mp_nvidia_key_v1","mp_nvidia_model_v1","mp_ai_provider","mp_profiles_v1","mp_actions_v1","mp_theme","mp_local_events_v1","mp_mode_v1"];
       keys.forEach(k=>{if(bundle[k]!==undefined&&bundle[k]!=="")localStorage.setItem(k,bundle[k]);});
       document.getElementById("importStatus").textContent=`✅ 匯入成功（匯出時間：${bundle._exported?.slice(0,16)||"未知"}）。即將重新整理…`;
       setTimeout(()=>location.reload(),1500);
