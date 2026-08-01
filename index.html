@@ -291,6 +291,16 @@
       <div class="muted" style="font-size:11px;margin-top:8px">⚠️ NVIDIA API 不允許瀏覽器直連（CORS）。請部署 nvidia-proxy.gs 後，把 GAS 的 /exec 網址填在上方「代理網址」，即可透過代理呼叫。</div>
     </div>
     <div style="height:18px;border-top:1px solid var(--line);margin-top:18px;padding-top:18px;">
+      <h3 style="margin:0 0 10px;">📊 分析紀錄同步到 Google Sheet（選填）</h3>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">在「MICRO POLITICS」試算表內用「擴充功能→Apps Script」部署 sheet-logger.gs 後，把 /exec 網址填在這裡。按「儲存為紀錄」時會多寫一列到試算表。</div>
+      <input id="sheetUrlInput" type="text" placeholder="https://script.google.com/macros/s/…/exec" />
+      <div class="row" style="margin-top:8px">
+        <button class="btn primary" onclick="saveSheetUrl()">💾 儲存網址</button>
+        <button class="btn" onclick="clearSheetUrl()">清除</button>
+      </div>
+      <div id="sheetUrlStatus" class="muted" style="font-size:12px;margin-top:6px"></div>
+    </div>
+    <div style="height:18px;border-top:1px solid var(--line);margin-top:18px;padding-top:18px;">
       <h3 style="margin:0 0 10px;">🔒 PIN 碼設定</h3>
     </div>
     <div style="margin-top:8px">
@@ -948,6 +958,8 @@ function openSettings() {
   document.getElementById("nvKeyInput").value = getNvKey();
   document.getElementById("nvModelInput").value = getNvModel();
   document.getElementById("nvProxyInput").value = getNvProxy();
+  document.getElementById("sheetUrlInput").value = getAnalysesSheetUrl();
+  document.getElementById("sheetUrlStatus").textContent = "";
   onProviderChange();
   updateKeyStatusRow(getGeminiKey()?"已設定":"尚未設定",getGeminiKey()?"dot-ok":"dot-no");
   updateNvStatus(getNvKey()?("已設定："+getNvModel()):"尚未設定",getNvKey()?"dot-ok":"dot-no");
@@ -1190,6 +1202,9 @@ async function _saveAnalysis(rec){
   const created=new Date().toISOString();
   const id="ana_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,6);
   const obj={id,created_at:created,tool:String(rec&&rec.tool||""),content:String(rec&&rec.content||""),analysis:String(rec&&rec.analysis||""),o3:String(rec&&rec.o3||"")};
+  // 若有設定 Google Sheet 網址，額外寫一列（fire-and-forget，不影響主儲存）
+  const _sheetUrl=getAnalysesSheetUrl();
+  if(_sheetUrl){ try{ fetch(_sheetUrl,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(obj)}).catch(()=>{}); }catch(_){} }
   const isLocal = (typeof getMode==="function" && getMode()==="local");
   if(!isLocal && _authUser){
     try{ await firebase.database().ref("microPolitics/analyses").child(id).set(obj); return {ok:true,where:"cloud",rec:obj}; }
@@ -1210,6 +1225,19 @@ async function _deleteAnalysis(id){
   try{localStorage.setItem("mp_analyses_v1",JSON.stringify(list));}catch(_){}
 }
 window._fbAnalyses=_fbAnalyses; window._saveAnalysis=_saveAnalysis; window._deleteAnalysis=_deleteAnalysis;
+
+// 分析紀錄同步到 Google Sheet 的網址
+function getAnalysesSheetUrl(){ try{return (localStorage.getItem("mp_analyses_sheet_url")||"").trim();}catch(_){return "";} }
+function saveSheetUrl(){
+  const v=document.getElementById("sheetUrlInput").value.trim();
+  try{localStorage.setItem("mp_analyses_sheet_url",v);}catch(_){}
+  document.getElementById("sheetUrlStatus").textContent = v?"✅ 已儲存，按「儲存為紀錄」時會同步寫入試算表":"（已清空）";
+}
+function clearSheetUrl(){
+  try{localStorage.removeItem("mp_analyses_sheet_url");}catch(_){}
+  document.getElementById("sheetUrlInput").value="";
+  document.getElementById("sheetUrlStatus").textContent="（已清空）";
+}
 
 // 規則引擎（無 AI Key 時的預設分類與三層建議，沿用舊 GAS 風格）
 function ruleClassify(desc){
@@ -2228,7 +2256,7 @@ const MODE_KEY = "mp_mode_v1";
 function getMode(){ return localStorage.getItem(MODE_KEY)||"cloud"; }
 
 function exportSettings(){
-  const bundle={_version:3,_exported:new Date().toISOString(),mp_gemini_key_v2:localStorage.getItem("mp_gemini_key_v2")||"",mp_gemini_model_v2:localStorage.getItem("mp_gemini_model_v2")||"",mp_gemini_ver:localStorage.getItem("mp_gemini_ver")||"",mp_nvidia_key_v1:localStorage.getItem("mp_nvidia_key_v1")||"",mp_nvidia_model_v1:localStorage.getItem("mp_nvidia_model_v1")||"",mp_nvidia_proxy:localStorage.getItem("mp_nvidia_proxy")||"",mp_ai_provider:localStorage.getItem("mp_ai_provider")||"gemini",mp_profiles_v1:localStorage.getItem("mp_profiles_v1")||"",mp_actions_v1:localStorage.getItem("mp_actions_v1")||"",mp_theme:localStorage.getItem("mp_theme")||"light",mp_local_events_v1:localStorage.getItem("mp_local_events_v1")||"[]",mp_mode_v1:getMode()};
+  const bundle={_version:3,_exported:new Date().toISOString(),mp_gemini_key_v2:localStorage.getItem("mp_gemini_key_v2")||"",mp_gemini_model_v2:localStorage.getItem("mp_gemini_model_v2")||"",mp_gemini_ver:localStorage.getItem("mp_gemini_ver")||"",mp_nvidia_key_v1:localStorage.getItem("mp_nvidia_key_v1")||"",mp_nvidia_model_v1:localStorage.getItem("mp_nvidia_model_v1")||"",mp_nvidia_proxy:localStorage.getItem("mp_nvidia_proxy")||"",mp_analyses_sheet_url:localStorage.getItem("mp_analyses_sheet_url")||"",mp_ai_provider:localStorage.getItem("mp_ai_provider")||"gemini",mp_profiles_v1:localStorage.getItem("mp_profiles_v1")||"",mp_actions_v1:localStorage.getItem("mp_actions_v1")||"",mp_theme:localStorage.getItem("mp_theme")||"light",mp_local_events_v1:localStorage.getItem("mp_local_events_v1")||"[]",mp_mode_v1:getMode()};
   const blob=new Blob([JSON.stringify(bundle,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob),a=document.createElement("a");
   a.href=url;a.download=`micro-politics-settings-${new Date().toISOString().slice(0,10)}.json`;
@@ -2242,7 +2270,7 @@ function importSettings(input){
     try{
       const bundle=JSON.parse(e.target.result);
       if(!bundle._version){throw new Error("不是有效的設定檔");}
-      const keys=["mp_gemini_key_v2","mp_gemini_model_v2","mp_gemini_ver","mp_nvidia_key_v1","mp_nvidia_model_v1","mp_nvidia_proxy","mp_ai_provider","mp_profiles_v1","mp_actions_v1","mp_theme","mp_local_events_v1","mp_mode_v1"];
+      const keys=["mp_gemini_key_v2","mp_gemini_model_v2","mp_gemini_ver","mp_nvidia_key_v1","mp_nvidia_model_v1","mp_nvidia_proxy","mp_analyses_sheet_url","mp_ai_provider","mp_profiles_v1","mp_actions_v1","mp_theme","mp_local_events_v1","mp_mode_v1"];
       keys.forEach(k=>{if(bundle[k]!==undefined&&bundle[k]!=="")localStorage.setItem(k,bundle[k]);});
       document.getElementById("importStatus").textContent=`✅ 匯入成功（匯出時間：${bundle._exported?.slice(0,16)||"未知"}）。即將重新整理…`;
       setTimeout(()=>location.reload(),1500);
