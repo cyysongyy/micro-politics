@@ -1168,6 +1168,49 @@ async function _fbEvents(){
   return arr;
 }
 
+// ── 分析紀錄（工具分析 ＋ O3 對話）：雲端優先，失敗自動退回本機 ──
+async function _fbAnalyses(){
+  let cloud=[], local=[];
+  try{ local=JSON.parse(localStorage.getItem("mp_analyses_v1")||"[]"); }catch(_){ local=[]; }
+  const isLocal = (typeof getMode==="function" && getMode()==="local");
+  if(!isLocal && _authUser){
+    try{
+      const snap=await firebase.database().ref("microPolitics/analyses").once("value");
+      const val=snap.val()||{};
+      cloud=Object.values(val).filter(x=>x&&typeof x==="object");
+    }catch(_){}
+  }
+  const byId={};
+  cloud.concat(local).forEach(x=>{ if(x&&x.id) byId[x.id]=x; });
+  const arr=Object.values(byId);
+  arr.sort((a,b)=>String(b.created_at||"").localeCompare(String(a.created_at||"")));
+  return arr;
+}
+async function _saveAnalysis(rec){
+  const created=new Date().toISOString();
+  const id="ana_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,6);
+  const obj={id,created_at:created,tool:String(rec&&rec.tool||""),content:String(rec&&rec.content||""),analysis:String(rec&&rec.analysis||""),o3:String(rec&&rec.o3||"")};
+  const isLocal = (typeof getMode==="function" && getMode()==="local");
+  if(!isLocal && _authUser){
+    try{ await firebase.database().ref("microPolitics/analyses").child(id).set(obj); return {ok:true,where:"cloud",rec:obj}; }
+    catch(e){ /* 權限或離線 → 落到本機 */ }
+  }
+  let list=[]; try{list=JSON.parse(localStorage.getItem("mp_analyses_v1")||"[]");}catch(_){}
+  list.unshift(obj);
+  try{localStorage.setItem("mp_analyses_v1",JSON.stringify(list));}catch(_){}
+  return {ok:true,where:"local",rec:obj};
+}
+async function _deleteAnalysis(id){
+  const isLocal = (typeof getMode==="function" && getMode()==="local");
+  if(!isLocal && _authUser){
+    try{ await firebase.database().ref("microPolitics/analyses").child(_fbKeySafe(id)).remove(); }catch(_){}
+  }
+  let list=[]; try{list=JSON.parse(localStorage.getItem("mp_analyses_v1")||"[]");}catch(_){}
+  list=list.filter(x=>x.id!==id);
+  try{localStorage.setItem("mp_analyses_v1",JSON.stringify(list));}catch(_){}
+}
+window._fbAnalyses=_fbAnalyses; window._saveAnalysis=_saveAnalysis; window._deleteAnalysis=_deleteAnalysis;
+
 // 規則引擎（無 AI Key 時的預設分類與三層建議，沿用舊 GAS 風格）
 function ruleClassify(desc){
   const d=String(desc||"");
