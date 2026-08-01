@@ -106,8 +106,17 @@
       + fld('從歷史事件帶入（選填）', '<select id="tlEvent" style="' + IS + '"><option value="">載入雲端事件中…</option></select>')
       + fld('事件內容', '<textarea id="tlContent" rows="5" placeholder="描述要分析的事件或情況，例：資深老師抱怨又要弄新計畫、增加負擔…" style="' + IS + ';resize:vertical"></textarea>')
       + '<button id="tlRun" style="' + BS + '">🔍 用 AI 分析（分析完自動接 O3 對話）</button>'
-      + '<div id="tlResult" style="margin-top:14px"></div>';
+      + '<div id="tlResult" style="margin-top:14px"></div>'
+      + '<div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px">'
+      + '<button id="tlRecordsToggle" style="width:100%;padding:9px;background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">📚 已存分析紀錄</button>'
+      + '<div id="tlRecords" style="margin-top:10px;display:none"></div>'
+      + '</div>';
     body.querySelector('#tlRun').onclick = run;
+    body.querySelector('#tlRecordsToggle').onclick = function () {
+      var box = modal.querySelector('#tlRecords');
+      if (box.style.display === 'none') { box.style.display = 'block'; loadRecords(); }
+      else { box.style.display = 'none'; }
+    };
     var evSel = body.querySelector('#tlEvent');
     evSel.onchange = function () {
       if (evSel.value === '') return;
@@ -136,23 +145,86 @@
       out.querySelector('#tlCopy').onclick = function () { try { navigator.clipboard.writeText(t); this.textContent = '✓ 已複製'; } catch (e) {} };
       var savedContent = content;
       var o3Btn = out.querySelector('#tlO3');
-      o3Btn.onclick = function () { runO3(savedContent, out.querySelector('#tlO3Result'), this); };
+      var ctx = { tool: tool.name, analysis: t };
+      o3Btn.onclick = function () { runO3(savedContent, out.querySelector('#tlO3Result'), this, ctx); };
       // 分析完立刻自動接 O3 對話系統（不需再手動點）
-      runO3(savedContent, out.querySelector('#tlO3Result'), o3Btn);
+      runO3(savedContent, out.querySelector('#tlO3Result'), o3Btn, ctx);
     }, function (e) { out.innerHTML = '<div style="color:#ef4444;font-size:13px">' + esc(e) + '</div>'; });
   }
 
-  function runO3(content, outEl, btn) {
+  function runO3(content, outEl, btn, ctx) {
+    ctx = ctx || {};
     btn.textContent = '產生中…'; btn.disabled = true;
     outEl.innerHTML = '<div style="color:#6b7280;font-size:13px">O3 腳本產生中…</div>';
     analyze(O3_SYS, content, function (t) {
       outEl.innerHTML = '<div style="border:1px solid #ddd6fe;background:#faf5ff;border-radius:10px;padding:14px">'
         + '<div style="font-size:12px;font-weight:700;color:#7c3aed;margin-bottom:8px">🗣️ O3 一對一對話腳本</div>'
         + '<div style="font-size:14px;line-height:1.8;color:#3b0764;white-space:pre-wrap">' + mdBold(t) + '</div></div>'
-        + '<button id="tlO3Copy" style="margin-top:8px;padding:8px 14px;background:#7c3aed;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">📋 複製對話腳本</button>';
+        + '<div style="display:flex;gap:8px;margin-top:8px">'
+        + '<button id="tlO3Copy" style="flex:1;padding:8px 14px;background:#7c3aed;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">📋 複製對話腳本</button>'
+        + '<button id="tlSave" style="flex:1;padding:8px 14px;background:#0f766e;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">💾 儲存為紀錄</button>'
+        + '</div>';
       outEl.querySelector('#tlO3Copy').onclick = function () { try { navigator.clipboard.writeText(t); this.textContent = '✓ 已複製'; } catch (e) {} };
+      outEl.querySelector('#tlSave').onclick = function () {
+        saveRecord({ tool: ctx.tool || 'O3 對話', content: content, analysis: ctx.analysis || '', o3: t }, this);
+      };
       btn.textContent = '🗣️ 重新產生 O3'; btn.disabled = false;
     }, function (e) { outEl.innerHTML = '<div style="color:#ef4444;font-size:13px">' + esc(e) + '</div>'; btn.textContent = '🗣️ 產生 O3 對話腳本'; btn.disabled = false; });
+  }
+
+  /* 儲存分析＋O3 為一筆紀錄（雲端優先，失敗退回本機） */
+  function saveRecord(rec, btn) {
+    if (typeof window._saveAnalysis !== 'function') { alert('儲存功能需在 App 內、登入後才可用'); return; }
+    var orig = btn.textContent; btn.textContent = '儲存中…'; btn.disabled = true;
+    Promise.resolve(window._saveAnalysis(rec)).then(function (res) {
+      btn.textContent = (res && res.where === 'local') ? '✓ 已存（本機）' : '✓ 已存（雲端）';
+    }).catch(function (e) {
+      btn.textContent = orig; btn.disabled = false;
+      alert('儲存失敗：' + (e && e.message ? e.message : e));
+    });
+  }
+
+  /* 已存紀錄檢視 */
+  var RECORDS = {};
+  function loadRecords() {
+    var box = modal && modal.querySelector('#tlRecords');
+    if (!box) return;
+    box.innerHTML = '<div style="color:#6b7280;font-size:13px">載入中…</div>';
+    if (typeof window._fbAnalyses !== 'function') { box.innerHTML = '<div style="color:#9ca3af;font-size:13px">需在 App 內使用</div>'; return; }
+    Promise.resolve(window._fbAnalyses()).then(function (list) {
+      list = list || [];
+      if (!list.length) { box.innerHTML = '<div style="color:#9ca3af;font-size:13px">尚無已存紀錄</div>'; return; }
+      RECORDS = {};
+      box.innerHTML = list.map(function (r) {
+        RECORDS[r.id] = r;
+        var when = String(r.created_at || '').slice(0, 16).replace('T', ' ');
+        return '<div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:8px">'
+          + '<div style="font-size:12px;color:#6b7280;margin-bottom:4px">' + esc(when) + '　' + esc(r.tool || '') + '</div>'
+          + '<div style="font-size:12px;color:#374151;white-space:pre-wrap;max-height:48px;overflow:hidden">' + esc((r.content || '').slice(0, 120)) + '</div>'
+          + '<div style="display:flex;gap:6px;margin-top:6px">'
+          + '<button class="tlRecView" data-id="' + esc(r.id) + '" style="flex:1;padding:5px;background:#0f766e;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer">展開／收合</button>'
+          + '<button class="tlRecDel" data-id="' + esc(r.id) + '" style="padding:5px 10px;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;font-size:12px;cursor:pointer">刪除</button>'
+          + '</div>'
+          + '<div class="tlRecFull" id="rec_' + esc(r.id) + '" style="display:none;margin-top:8px"></div>'
+          + '</div>';
+      }).join('');
+      box.querySelectorAll('.tlRecView').forEach(function (b) { b.onclick = function () { toggleRecord(b.getAttribute('data-id')); }; });
+      box.querySelectorAll('.tlRecDel').forEach(function (b) { b.onclick = function () { delRecord(b.getAttribute('data-id')); }; });
+    }).catch(function (e) { box.innerHTML = '<div style="color:#ef4444;font-size:13px">載入失敗：' + esc(e && e.message || e) + '</div>'; });
+  }
+  function toggleRecord(id) {
+    var full = modal.querySelector('#rec_' + id);
+    var r = RECORDS[id];
+    if (!full || !r) return;
+    if (full.style.display === 'none') {
+      full.style.display = 'block';
+      full.innerHTML = (r.analysis ? ('<div style="font-weight:700;font-size:12px;color:#0f766e;margin:6px 0 2px">框架分析</div><div style="font-size:13px;line-height:1.6;white-space:pre-wrap;color:#134e4a">' + mdBold(r.analysis) + '</div>') : '')
+        + (r.o3 ? ('<div style="font-weight:700;font-size:12px;color:#7c3aed;margin:8px 0 2px">O3 對話</div><div style="font-size:13px;line-height:1.6;white-space:pre-wrap;color:#3b0764">' + mdBold(r.o3) + '</div>') : '');
+    } else { full.style.display = 'none'; }
+  }
+  function delRecord(id) {
+    if (!confirm('確定刪除這筆紀錄？')) return;
+    Promise.resolve(typeof window._deleteAnalysis === 'function' ? window._deleteAnalysis(id) : null).then(loadRecords);
   }
 
   window.openTools = function (prefill) {
